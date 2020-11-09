@@ -1,4 +1,4 @@
-# This file contains google utils: https://cloud.google.com/storage/docs/reference/libraries
+# This file contains google yolov5_utils: https://cloud.google.com/storage/docs/reference/libraries
 # pip install --upgrade google-cloud-storage
 # from google.cloud import storage
 
@@ -23,7 +23,7 @@ def attempt_download(weights):
     file = Path(weights).name
 
     msg = weights + ' missing, try downloading from https://github.com/ultralytics/yolov5/releases/'
-    models = ['yolov5s.pt', 'yolov5m.pt', 'yolov5l.pt', 'yolov5x.pt']  # available models
+    models = ['yolov5s.pt', 'yolov5m.pt', 'yolov5l.pt', 'yolov5x.pt']  # available yolov5_models
 
     if file in models and not os.path.isfile(weights):
         # Google Drive
@@ -54,7 +54,7 @@ def attempt_download(weights):
 
 
 def gdrive_download(id='1n_oKgR81BJtqk75b00eAjdv03qVCQn2f', name='coco128.zip'):
-    # Downloads a file from Google Drive. from utils.google_utils import *; gdrive_download()
+    # Downloads a file from Google Drive. from yolov5_utils.google_utils import *; gdrive_download()
     t = time.time()
 
     print('Downloading https://drive.google.com/uc?export=download&id=%s as %s... ' % (id, name), end='')

@@ -1,7 +1,7 @@
 """Exports a YOLOv5 *.pt model to ONNX and TorchScript formats
 
 Usage:
-    $ export PYTHONPATH="$PWD" && python models/export.py --weights ./weights/yolov5s.pt --img 640 --batch 1
+    $ export PYTHONPATH="$PWD" && python yolov5_models/export.py --weights ./weights/yolov5s.pt --img 640 --batch 1
 """
 
 import argparse
@@ -9,14 +9,14 @@ import argparse
 import torch
 import torch.nn as nn
 
-import models
-from models.experimental import attempt_load
-from utils.activations import Hardswish
-from utils.general import set_logging
+import yolov5_models
+from yolov5_models.experimental import attempt_load
+from yolov5_utils.activations import Hardswish
+from yolov5_utils.general import set_logging
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', type=str, default='./yolov5s.pt', help='weights path')  # from yolov5/models/
+    parser.add_argument('--weights', type=str, default='./yolov5s.pt', help='weights path')  # from yolov5/yolov5_models/
     parser.add_argument('--img-size', nargs='+', type=int, default=[640, 640], help='image size')  # height, width
     parser.add_argument('--batch-size', type=int, default=1, help='batch size')
     opt = parser.parse_args()
@@ -33,9 +33,9 @@ if __name__ == '__main__':
     # Update model
     for k, m in model.named_modules():
         m._non_persistent_buffers_set = set()  # pytorch 1.6.0 compatability
-        if isinstance(m, models.common.Conv) and isinstance(m.act, nn.Hardswish):
+        if isinstance(m, yolov5_models.common.Conv) and isinstance(m.act, nn.Hardswish):
             m.act = Hardswish()  # assign activation
-        # if isinstance(m, models.yolo.Detect):
+        # if isinstance(m, yolov5_models.yolo.Detect):
         #     m.forward = m.forward_export  # assign forward (optional)
     model.model[-1].export = True  # set Detect() layer export=True
     y = model(img)  # dry run

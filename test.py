@@ -10,12 +10,12 @@ import torch
 import yaml
 from tqdm import tqdm
 
-from models.experimental import attempt_load
-from utils.datasets import create_dataloader
-from utils.general import (
+from yolov5_models.experimental import attempt_load
+from yolov5_utils.datasets import create_dataloader
+from yolov5_utils.general import (
     coco80_to_coco91_class, check_dataset, check_file, check_img_size, compute_loss, non_max_suppression, scale_coords,
     xyxy2xywh, clip_coords, plot_images, xywh2xyxy, box_iou, output_to_target, ap_per_class, set_logging)
-from utils.torch_utils import select_device, time_synchronized
+from yolov5_utils.torch_utils import select_device, time_synchronized
 
 
 def test(data,
@@ -292,4 +292,4 @@ if __name__ == '__main__':
                 y.append(r + t)  # results and times
             np.savetxt(f, y, fmt='%10.4g')  # save
         os.system('zip -r study.zip study_*.txt')
-        # utils.general.plot_study_txt(f, x)  # plot
+        # yolov5_utils.general.plot_study_txt(f, x)  # plot

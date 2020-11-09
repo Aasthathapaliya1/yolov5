@@ -10,12 +10,12 @@ import torch
 import torch.backends.cudnn as cudnn
 from numpy import random
 
-from models.experimental import attempt_load
-from utils.datasets import LoadStreams, LoadImages
-from utils.general import (
+from yolov5_models.experimental import attempt_load
+from yolov5_utils.datasets import LoadStreams, LoadImages
+from yolov5_utils.general import (
     check_img_size, non_max_suppression, apply_classifier, scale_coords,
     xyxy2xywh, plot_one_box, strip_optimizer, set_logging)
-from utils.torch_utils import select_device, load_classifier, time_synchronized
+from yolov5_utils.torch_utils import select_device, load_classifier, time_synchronized
 
 
 def detect(save_img=False):
@@ -160,12 +160,12 @@ if __name__ == '__main__':
     parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --class 0, or --class 0 2 3')
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
-    parser.add_argument('--update', action='store_true', help='update all models')
+    parser.add_argument('--update', action='store_true', help='update all yolov5_models')
     opt = parser.parse_args()
     print(opt)
 
     with torch.no_grad():
-        if opt.update:  # update all models (to fix SourceChangeWarning)
+        if opt.update:  # update all yolov5_models (to fix SourceChangeWarning)
             for opt.weights in ['yolov5s.pt', 'yolov5m.pt', 'yolov5l.pt', 'yolov5x.pt']:
                 detect()
                 strip_optimizer(opt.weights)

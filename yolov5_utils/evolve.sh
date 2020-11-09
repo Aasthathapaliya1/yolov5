@@ -4,7 +4,7 @@
 
 # Start on 4-GPU machine
 #for i in 0 1 2 3; do
-#  t=ultralytics/yolov5:evolve && sudo docker pull $t && sudo docker run -d --ipc=host --gpus all -v "$(pwd)"/VOC:/usr/src/VOC $t bash utils/evolve.sh $i
+#  t=ultralytics/yolov5:evolve && sudo docker pull $t && sudo docker run -d --ipc=host --gpus all -v "$(pwd)"/VOC:/usr/src/VOC $t bash yolov5_utils/evolve.sh $i
 #  sleep 60 # avoid simultaneous evolve.txt read/write
 #done
 

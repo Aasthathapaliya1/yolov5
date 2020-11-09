@@ -14,7 +14,7 @@ from PIL import Image, ExifTags
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
-from utils.general import xyxy2xywh, xywh2xyxy, torch_distributed_zero_first
+from yolov5_utils.general import xyxy2xywh, xywh2xyxy, torch_distributed_zero_first
 
 help_url = 'https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data'
 img_formats = ['.bmp', '.jpg', '.jpeg', '.png', '.tif', '.tiff', '.dng']
@@ -887,7 +887,7 @@ def cutout(image, labels):
     return labels
 
 
-def reduce_img_size(path='path/images', img_size=1024):  # from utils.datasets import *; reduce_img_size()
+def reduce_img_size(path='path/images', img_size=1024):  # from yolov5_utils.datasets import *; reduce_img_size()
     # creates a new ./images_reduced folder with reduced size images of maximum size img_size
     path_new = path + '_reduced'  # reduced images path
     create_folder(path_new)
@@ -904,7 +904,7 @@ def reduce_img_size(path='path/images', img_size=1024):  # from utils.datasets i
             print('WARNING: image failure %s' % f)
 
 
-def recursive_dataset2bmp(dataset='path/dataset_bmp'):  # from utils.datasets import *; recursive_dataset2bmp()
+def recursive_dataset2bmp(dataset='path/dataset_bmp'):  # from yolov5_utils.datasets import *; recursive_dataset2bmp()
     # Converts dataset to bmp (for faster training)
     formats = [x.lower() for x in img_formats] + [x.upper() for x in img_formats]
     for a, b, files in os.walk(dataset):
@@ -924,7 +924,7 @@ def recursive_dataset2bmp(dataset='path/dataset_bmp'):  # from utils.datasets im
                     os.system("rm '%s'" % p)
 
 
-def imagelist2folder(path='path/images.txt'):  # from utils.datasets import *; imagelist2folder()
+def imagelist2folder(path='path/images.txt'):  # from yolov5_utils.datasets import *; imagelist2folder()
     # Copies all the images in a text file (list of images) into a folder
     create_folder(path[:-4])
     with open(path, 'r') as f:

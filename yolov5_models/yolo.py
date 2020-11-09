@@ -7,10 +7,10 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 
-from models.common import Conv, Bottleneck, SPP, DWConv, Focus, BottleneckCSP, Concat
-from models.experimental import MixConv2d, CrossConv, C3
-from utils.general import check_anchor_order, make_divisible, check_file, set_logging
-from utils.torch_utils import (
+from yolov5_models.common import Conv, Bottleneck, SPP, DWConv, Focus, BottleneckCSP, Concat
+from yolov5_models.experimental import MixConv2d, CrossConv, C3
+from yolov5_utils.general import check_anchor_order, make_divisible, check_file, set_logging
+from yolov5_utils.torch_utils import (
     time_synchronized, fuse_conv_and_bn, model_info, scale_img, initialize_weights, select_device)
 
 logger = logging.getLogger(__name__)
@@ -257,8 +257,8 @@ if __name__ == '__main__':
     # torch.onnx.export(model, img, opt.cfg.replace('.yaml', '.onnx'), verbose=True, opset_version=11)
 
     # Tensorboard
-    # from torch.utils.tensorboard import SummaryWriter
+    # from torch.yolov5_utils.tensorboard import SummaryWriter
     # tb_writer = SummaryWriter()
-    # print("Run 'tensorboard --logdir=models/runs' to view tensorboard at http://localhost:6006/")
+    # print("Run 'tensorboard --logdir=yolov5_models/runs' to view tensorboard at http://localhost:6006/")
     # tb_writer.add_graph(model.model, img)  # add model to tensorboard
     # tb_writer.add_image('test', img[0], dataformats='CWH')  # add model to tensorboard

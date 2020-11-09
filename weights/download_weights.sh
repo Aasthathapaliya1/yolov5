@@ -1,5 +1,5 @@
 #!/bin/bash
-# Download common models
+# Download common yolov5_models
 
 python -c "
 from utils.google_utils import *;

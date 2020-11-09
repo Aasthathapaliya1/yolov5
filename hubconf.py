@@ -10,8 +10,8 @@ import os
 
 import torch
 
-from models.yolo import Model
-from utils.google_utils import attempt_download
+from yolov5_models.yolo import Model
+from yolov5_utils.google_utils import attempt_download
 
 
 def create(name, pretrained, channels, classes):
@@ -26,7 +26,7 @@ def create(name, pretrained, channels, classes):
     Returns:
         pytorch model
     """
-    config = os.path.join(os.path.dirname(__file__), 'models', '%s.yaml' % name)  # model.yaml path
+    config = os.path.join(os.path.dirname(__file__), 'yolov5_models', '%s.yaml' % name)  # model.yaml path
     try:
         model = Model(config, channels, classes)
         if pretrained:

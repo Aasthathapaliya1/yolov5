@@ -1,4 +1,4 @@
-# This file contains modules common to various models
+# This file contains modules common to various yolov5_models
 import math
 
 import torch

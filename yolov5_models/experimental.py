@@ -4,8 +4,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from models.common import Conv, DWConv
-from utils.google_utils import attempt_download
+from yolov5_models.common import Conv, DWConv
+from yolov5_utils.google_utils import attempt_download
 
 
 class CrossConv(nn.Module):
@@ -115,7 +115,7 @@ class MixConv2d(nn.Module):
 
 
 class Ensemble(nn.ModuleList):
-    # Ensemble of models
+    # Ensemble of yolov5_models
     def __init__(self):
         super(Ensemble, self).__init__()
 
@@ -130,7 +130,7 @@ class Ensemble(nn.ModuleList):
 
 
 def attempt_load(weights, map_location=None):
-    # Loads an ensemble of models weights=[a,b,c] or a single model weights=[a] or weights=a
+    # Loads an ensemble of yolov5_models weights=[a,b,c] or a single model weights=[a] or weights=a
     model = Ensemble()
     for w in weights if isinstance(weights, list) else [weights]:
         attempt_download(w)
