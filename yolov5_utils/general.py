@@ -4,6 +4,7 @@ import math
 import os
 import platform
 import random
+import re
 import shutil
 import subprocess
 import time
@@ -18,13 +19,13 @@ import numpy as np
 import torch
 import torch.nn as nn
 import yaml
+from PIL import Image
 from scipy.cluster.vq import kmeans
 from scipy.signal import butter, filtfilt
 from tqdm import tqdm
 
-from yolov5_utils.google_utils import gsutil_getsize
-from yolov5_utils.torch_utils import init_seeds as init_torch_seeds
-from yolov5_utils.torch_utils import is_parallel
+from utils.google_utils import gsutil_getsize
+from utils.torch_utils import is_parallel, init_torch_seeds
 
 # Set printoptions
 torch.set_printoptions(linewidth=320, precision=5, profile='long')
@@ -56,7 +57,7 @@ def set_logging(rank=-1):
 def init_seeds(seed=0):
     random.seed(seed)
     np.random.seed(seed)
-    init_torch_seeds(seed=seed)
+    init_torch_seeds(seed)
 
 
 def get_latest_run(search_dir='./runs'):
@@ -133,7 +134,8 @@ def check_file(file):
     else:
         files = glob.glob('./**/' + file, recursive=True)  # find file
         assert len(files), 'File Not Found: %s' % file  # assert file was found
-        return files[0]  # return first file if multiple found
+        assert len(files) == 1, "Multiple files match '%s', specify exact path: %s" % (file, files)  # assert unique
+        return files[0]  # return file
 
 
 def check_dataset(dict):
@@ -142,7 +144,7 @@ def check_dataset(dict):
     if val and len(val):
         val = [os.path.abspath(x) for x in (val if isinstance(val, list) else [val])]  # val path
         if not all(os.path.exists(x) for x in val):
-            print('\nWARNING: Dataset not found, nonexistant paths: %s' % [*val])
+            print('\nWARNING: Dataset not found, nonexistent paths: %s' % [*val])
             if s and len(s):  # download script
                 print('Downloading %s ...' % s)
                 if s.startswith('http') and s.endswith('.zip'):  # URL
@@ -157,7 +159,7 @@ def check_dataset(dict):
 
 
 def make_divisible(x, divisor):
-    # Returns x evenly divisble by divisor
+    # Returns x evenly divisible by divisor
     return math.ceil(x / divisor) * divisor
 
 
@@ -168,9 +170,9 @@ def labels_to_class_weights(labels, nc=80):
 
     labels = np.concatenate(labels, 0)  # labels.shape = (866643, 5) for COCO
     classes = labels[:, 0].astype(np.int)  # labels = [class xywh]
-    weights = np.bincount(classes, minlength=nc)  # occurences per class
+    weights = np.bincount(classes, minlength=nc)  # occurrences per class
 
-    # Prepend gridpoint count (for uCE trianing)
+    # Prepend gridpoint count (for uCE training)
     # gpi = ((320 / 32 * np.array([1, 2, 4])) ** 2 * 3).sum()  # gridpoints per image
     # weights = np.hstack([gpi * len(labels)  - weights.sum() * 9, weights * 9]) ** 0.5  # prepend gridpoints to start
 
@@ -245,14 +247,16 @@ def clip_coords(boxes, img_shape):
     boxes[:, 3].clamp_(0, img_shape[0])  # y2
 
 
-def ap_per_class(tp, conf, pred_cls, target_cls):
+def ap_per_class(tp, conf, pred_cls, target_cls, plot=False, fname='precision-recall_curve.png'):
     """ Compute the average precision, given the recall and precision curves.
     Source: https://github.com/rafaelpadilla/Object-Detection-Metrics.
     # Arguments
-        tp:    True positives (nparray, nx1 or nx10).
+        tp:  True positives (nparray, nx1 or nx10).
         conf:  Objectness value from 0-1 (nparray).
-        pred_cls: Predicted object classes (nparray).
-        target_cls: True object classes (nparray).
+        pred_cls:  Predicted object classes (nparray).
+        target_cls:  True object classes (nparray).
+        plot:  Plot precision-recall curve at mAP@0.5
+        fname:  Plot filename
     # Returns
         The average precision as computed in py-faster-rcnn.
     """
@@ -265,6 +269,7 @@ def ap_per_class(tp, conf, pred_cls, target_cls):
     unique_classes = np.unique(target_cls)
 
     # Create Precision-Recall curve and compute AP for each class
+    px, py = np.linspace(0, 1, 1000), []  # for plotting
     pr_score = 0.1  # score to evaluate P and R https://github.com/ultralytics/yolov3/issues/898
     s = [unique_classes.shape[0], tp.shape[1]]  # number class, number iou thresholds (i.e. 10 for mAP0.5...0.95)
     ap, p, r = np.zeros(s), np.zeros(s), np.zeros(s)
@@ -290,20 +295,25 @@ def ap_per_class(tp, conf, pred_cls, target_cls):
 
             # AP from recall-precision curve
             for j in range(tp.shape[1]):
-                ap[ci, j] = compute_ap(recall[:, j], precision[:, j])
-
-            # Plot
-            # fig, ax = plt.subplots(1, 1, figsize=(5, 5))
-            # ax.plot(recall, precision)
-            # ax.set_xlabel('Recall')
-            # ax.set_ylabel('Precision')
-            # ax.set_xlim(0, 1.01)
-            # ax.set_ylim(0, 1.01)
-            # fig.tight_layout()
-            # fig.savefig('PR_curve.png', dpi=300)
+                ap[ci, j], mpre, mrec = compute_ap(recall[:, j], precision[:, j])
+                if j == 0:
+                    py.append(np.interp(px, mrec, mpre))  # precision at mAP@0.5
 
     # Compute F1 score (harmonic mean of precision and recall)
     f1 = 2 * p * r / (p + r + 1e-16)
+
+    if plot:
+        py = np.stack(py, axis=1)
+        fig, ax = plt.subplots(1, 1, figsize=(5, 5))
+        ax.plot(px, py, linewidth=0.5, color='grey')  # plot(recall, precision)
+        ax.plot(px, py.mean(1), linewidth=2, color='blue', label='all classes %.3f mAP@0.5' % ap[:, 0].mean())
+        ax.set_xlabel('Recall')
+        ax.set_ylabel('Precision')
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        plt.legend()
+        fig.tight_layout()
+        fig.savefig(fname, dpi=200)
 
     return p, r, ap, f1, unique_classes.astype('int32')
 
@@ -319,8 +329,8 @@ def compute_ap(recall, precision):
     """
 
     # Append sentinel values to beginning and end
-    mrec = np.concatenate(([0.], recall, [min(recall[-1] + 1E-3, 1.)]))
-    mpre = np.concatenate(([0.], precision, [0.]))
+    mrec = recall  # np.concatenate(([0.], recall, [recall[-1] + 1E-3]))
+    mpre = precision  # np.concatenate(([0.], precision, [0.]))
 
     # Compute the precision envelope
     mpre = np.flip(np.maximum.accumulate(np.flip(mpre)))
@@ -334,7 +344,7 @@ def compute_ap(recall, precision):
         i = np.where(mrec[1:] != mrec[:-1])[0]  # points where x axis (recall) changes
         ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])  # area under curve
 
-    return ap
+    return ap, mpre, mrec
 
 
 def bbox_iou(box1, box2, x1y1x2y2=True, GIoU=False, DIoU=False, CIoU=False, eps=1e-9):
@@ -502,11 +512,11 @@ def compute_loss(p, targets, model):  # predictions, targets, model
             pxy = ps[:, :2].sigmoid() * 2. - 0.5
             pwh = (ps[:, 2:4].sigmoid() * 2) ** 2 * anchors[i]
             pbox = torch.cat((pxy, pwh), 1).to(device)  # predicted box
-            giou = bbox_iou(pbox.T, tbox[i], x1y1x2y2=False, CIoU=True)  # giou(prediction, target)
-            lbox += (1.0 - giou).mean()  # giou loss
+            iou = bbox_iou(pbox.T, tbox[i], x1y1x2y2=False, CIoU=True)  # iou(prediction, target)
+            lbox += (1.0 - iou).mean()  # iou loss
 
             # Objectness
-            tobj[b, a, gj, gi] = (1.0 - model.gr) + model.gr * giou.detach().clamp(0).type(tobj.dtype)  # giou ratio
+            tobj[b, a, gj, gi] = (1.0 - model.gr) + model.gr * iou.detach().clamp(0).type(tobj.dtype)  # iou ratio
 
             # Classification
             if model.nc > 1:  # cls loss (only if multiple classes)
@@ -521,7 +531,7 @@ def compute_loss(p, targets, model):  # predictions, targets, model
         lobj += BCEobj(pi[..., 4], tobj) * balance[i]  # obj loss
 
     s = 3 / np  # output count scaling
-    lbox *= h['giou'] * s
+    lbox *= h['box'] * s
     lobj *= h['obj'] * s * (1.4 if np == 4 else 1.)
     lcls *= h['cls'] * s
     bs = tobj.shape[0]  # batch size
@@ -579,7 +589,7 @@ def build_targets(p, targets, model):
 
         # Append
         a = t[:, 6].long()  # anchor indices
-        indices.append((b, a, gj, gi))  # image, anchor, grid indices
+        indices.append((b, a, gj.clamp_(0, gain[3] - 1), gi.clamp_(0, gain[2] - 1)))  # image, anchor, grid indices
         tbox.append(torch.cat((gxy - gij, gwh), 1))  # box
         anch.append(anchors[a])  # anchors
         tcls.append(c)  # class
@@ -669,7 +679,7 @@ def non_max_suppression(prediction, conf_thres=0.1, iou_thres=0.6, merge=False, 
     return output
 
 
-def strip_optimizer(f='weights/best.pt', s=''):  # from yolov5_utils.general import *; strip_optimizer()
+def strip_optimizer(f='weights/best.pt', s=''):  # from utils.general import *; strip_optimizer()
     # Strip optimizer from 'f' to finalize training, optionally save as 's'
     x = torch.load(f, map_location=torch.device('cpu'))
     x['optimizer'] = None
@@ -694,7 +704,7 @@ def coco_class_count(path='../coco/labels/train2014/'):
         print(i, len(files))
 
 
-def coco_only_people(path='../coco/labels/train2017/'):  # from yolov5_utils.general import *; coco_only_people()
+def coco_only_people(path='../coco/labels/train2017/'):  # from utils.general import *; coco_only_people()
     # Find images with only people
     files = sorted(glob.glob('%s/*.*' % path))
     for i, file in enumerate(files):
@@ -703,7 +713,7 @@ def coco_only_people(path='../coco/labels/train2017/'):  # from yolov5_utils.gen
             print(labels.shape[0], file)
 
 
-def crop_images_random(path='../images/', scale=0.50):  # from yolov5_utils.general import *; crop_images_random()
+def crop_images_random(path='../images/', scale=0.50):  # from utils.general import *; crop_images_random()
     # crops images into random squares up to scale fraction
     # WARNING: overwrites images!
     for file in tqdm(sorted(glob.glob('%s/*.*' % path))):
@@ -727,7 +737,7 @@ def crop_images_random(path='../images/', scale=0.50):  # from yolov5_utils.gene
 
 
 def coco_single_class_labels(path='../coco/labels/train2014/', label_class=43):
-    # Makes single-class coco datasets. from yolov5_utils.general import *; coco_single_class_labels()
+    # Makes single-class coco datasets. from utils.general import *; coco_single_class_labels()
     if os.path.exists('new/'):
         shutil.rmtree('new/')  # delete output folder
     os.makedirs('new/')  # make new output folder
@@ -762,7 +772,7 @@ def kmean_anchors(path='./data/coco128.yaml', n=9, img_size=640, thr=4.0, gen=10
             k: kmeans evolved anchors
 
         Usage:
-            from yolov5_utils.general import *; _ = kmean_anchors()
+            from utils.general import *; _ = kmean_anchors()
     """
     thr = 1. / thr
 
@@ -790,7 +800,7 @@ def kmean_anchors(path='./data/coco128.yaml', n=9, img_size=640, thr=4.0, gen=10
     if isinstance(path, str):  # *.yaml file
         with open(path) as f:
             data_dict = yaml.load(f, Loader=yaml.FullLoader)  # model dict
-        from yolov5_utils.datasets import LoadImagesAndLabels
+        from utils.datasets import LoadImagesAndLabels
         dataset = LoadImagesAndLabels(data_dict['train'], augment=True, rect=True)
     else:
         dataset = path  # dataset
@@ -812,7 +822,7 @@ def kmean_anchors(path='./data/coco128.yaml', n=9, img_size=640, thr=4.0, gen=10
     k, dist = kmeans(wh / s, n, iter=30)  # points, mean distance
     k *= s
     wh = torch.tensor(wh, dtype=torch.float32)  # filtered
-    wh0 = torch.tensor(wh0, dtype=torch.float32)  # unflitered
+    wh0 = torch.tensor(wh0, dtype=torch.float32)  # unfiltered
     k = print_results(k)
 
     # Plot
@@ -945,9 +955,18 @@ def increment_dir(dir, comment=''):
     # Increments a directory runs/exp1 --> runs/exp2_comment
     n = 0  # number
     dir = str(Path(dir))  # os-agnostic
-    d = sorted(glob.glob(dir + '*'))  # directories
-    if len(d):
-        n = max([int(x[len(dir):x.find('_') if '_' in x else None]) for x in d]) + 1  # increment
+    if os.path.isdir(dir):
+        stem = ''
+        dir += os.sep  # removed by Path
+    else:
+        stem = Path(dir).stem
+
+    dirs = sorted(glob.glob(dir + '*'))  # directories
+    if dirs:
+        matches = [re.search(r"%s(\d+)" % stem, d) for d in dirs]
+        idxs = [int(m.groups()[0]) for m in matches if m]
+        if idxs:
+            n = max(idxs) + 1  # increment
     return dir + str(n) + ('_' + comment if comment else '')
 
 
@@ -987,7 +1006,7 @@ def plot_one_box(x, img, color=None, label=None, line_thickness=None):
         cv2.putText(img, label, (c1[0], c1[1] - 2), 0, tl / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
 
 
-def plot_wh_methods():  # from yolov5_utils.general import *; plot_wh_methods()
+def plot_wh_methods():  # from utils.general import *; plot_wh_methods()
     # Compares the two methods for width-height anchor multiplication
     # https://github.com/ultralytics/yolov3/issues/168
     x = np.arange(-4.0, 4.0, .1)
@@ -1011,8 +1030,6 @@ def plot_wh_methods():  # from yolov5_utils.general import *; plot_wh_methods()
 def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max_size=640, max_subplots=16):
     tl = 3  # line thickness
     tf = max(tl - 1, 1)  # font thickness
-    if os.path.isfile(fname):  # do not overwrite
-        return None
 
     if isinstance(images, torch.Tensor):
         images = images.cpu().float().numpy()
@@ -1085,9 +1102,10 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
         cv2.rectangle(mosaic, (block_x, block_y), (block_x + w, block_y + h), (255, 255, 255), thickness=3)
 
     if fname is not None:
-        mosaic = cv2.resize(mosaic, (int(ns * w * 0.5), int(ns * h * 0.5)), interpolation=cv2.INTER_AREA)
-        cv2.imwrite(fname, cv2.cvtColor(mosaic, cv2.COLOR_BGR2RGB))
-
+        r = min(1280. / max(h, w) / ns, 1.0)  # ratio to limit image size
+        mosaic = cv2.resize(mosaic, (int(ns * w * r), int(ns * h * r)), interpolation=cv2.INTER_AREA)
+        # cv2.imwrite(fname, cv2.cvtColor(mosaic, cv2.COLOR_BGR2RGB))  # cv2 save
+        Image.fromarray(mosaic).save(fname)  # PIL save
     return mosaic
 
 
@@ -1108,7 +1126,7 @@ def plot_lr_scheduler(optimizer, scheduler, epochs=300, save_dir=''):
     plt.savefig(Path(save_dir) / 'LR.png', dpi=200)
 
 
-def plot_test_txt():  # from yolov5_utils.general import *; plot_test()
+def plot_test_txt():  # from utils.general import *; plot_test()
     # Plot test.txt histograms
     x = np.loadtxt('test.txt', dtype=np.float32)
     box = xyxy2xywh(x[:, :4])
@@ -1125,7 +1143,7 @@ def plot_test_txt():  # from yolov5_utils.general import *; plot_test()
     plt.savefig('hist1d.png', dpi=200)
 
 
-def plot_targets_txt():  # from yolov5_utils.general import *; plot_targets_txt()
+def plot_targets_txt():  # from utils.general import *; plot_targets_txt()
     # Plot targets.txt histograms
     x = np.loadtxt('targets.txt', dtype=np.float32).T
     s = ['x targets', 'y targets', 'width targets', 'height targets']
@@ -1138,7 +1156,7 @@ def plot_targets_txt():  # from yolov5_utils.general import *; plot_targets_txt(
     plt.savefig('targets.jpg', dpi=200)
 
 
-def plot_study_txt(f='study.txt', x=None):  # from yolov5_utils.general import *; plot_study_txt()
+def plot_study_txt(f='study.txt', x=None):  # from utils.general import *; plot_study_txt()
     # Plot study.txt generated by test.py
     fig, ax = plt.subplots(2, 4, figsize=(10, 6), tight_layout=True)
     ax = ax.ravel()
@@ -1202,20 +1220,20 @@ def plot_labels(labels, save_dir=''):
         pass
 
 
-def plot_evolution(yaml_file='data/hyp.finetune.yaml'):  # from yolov5_utils.general import *; plot_evolution()
+def plot_evolution(yaml_file='data/hyp.finetune.yaml'):  # from utils.general import *; plot_evolution()
     # Plot hyperparameter evolution results in evolve.txt
     with open(yaml_file) as f:
         hyp = yaml.load(f, Loader=yaml.FullLoader)
     x = np.loadtxt('evolve.txt', ndmin=2)
     f = fitness(x)
     # weights = (f - f.min()) ** 2  # for weighted results
-    plt.figure(figsize=(10, 10), tight_layout=True)
+    plt.figure(figsize=(10, 12), tight_layout=True)
     matplotlib.rc('font', **{'size': 8})
     for i, (k, v) in enumerate(hyp.items()):
         y = x[:, i + 7]
         # mu = (y * weights).sum() / weights.sum()  # best weighted result
         mu = y[f.argmax()]  # best single result
-        plt.subplot(5, 5, i + 1)
+        plt.subplot(6, 5, i + 1)
         plt.scatter(y, f, c=hist2d(y, f, 20), cmap='viridis', alpha=.8, edgecolors='none')
         plt.plot(mu, f.max(), 'k+', markersize=15)
         plt.title('%s = %.3g' % (k, mu), fontdict={'size': 9})  # limit to 40 characters
@@ -1226,10 +1244,10 @@ def plot_evolution(yaml_file='data/hyp.finetune.yaml'):  # from yolov5_utils.gen
     print('\nPlot saved as evolve.png')
 
 
-def plot_results_overlay(start=0, stop=0):  # from yolov5_utils.general import *; plot_results_overlay()
+def plot_results_overlay(start=0, stop=0):  # from utils.general import *; plot_results_overlay()
     # Plot training 'results*.txt', overlaying train and val losses
     s = ['train', 'train', 'train', 'Precision', 'mAP@0.5', 'val', 'val', 'val', 'Recall', 'mAP@0.5:0.95']  # legends
-    t = ['GIoU', 'Objectness', 'Classification', 'P-R', 'mAP-F1']  # titles
+    t = ['Box', 'Objectness', 'Classification', 'P-R', 'mAP-F1']  # titles
     for f in sorted(glob.glob('results*.txt') + glob.glob('../../Downloads/results*.txt')):
         results = np.loadtxt(f, usecols=[2, 3, 4, 8, 9, 12, 13, 14, 10, 11], ndmin=2).T
         n = results.shape[1]  # number of rows
@@ -1249,13 +1267,13 @@ def plot_results_overlay(start=0, stop=0):  # from yolov5_utils.general import *
         fig.savefig(f.replace('.txt', '.png'), dpi=200)
 
 
-def plot_results(start=0, stop=0, bucket='', id=(), labels=(),
-                 save_dir=''):  # from yolov5_utils.general import *; plot_results()
+def plot_results(start=0, stop=0, bucket='', id=(), labels=(), save_dir=''):
+    # from utils.general import *; plot_results(save_dir='runs/train/exp0')
     # Plot training 'results*.txt' as seen in https://github.com/ultralytics/yolov5#reproduce-our-training
     fig, ax = plt.subplots(2, 5, figsize=(12, 6))
     ax = ax.ravel()
-    s = ['GIoU', 'Objectness', 'Classification', 'Precision', 'Recall',
-         'val GIoU', 'val Objectness', 'val Classification', 'mAP@0.5', 'mAP@0.5:0.95']
+    s = ['Box', 'Objectness', 'Classification', 'Precision', 'Recall',
+         'val Box', 'val Objectness', 'val Classification', 'mAP@0.5', 'mAP@0.5:0.95']
     if bucket:
         # os.system('rm -rf storage.googleapis.com')
         # files = ['https://storage.googleapis.com/%s/results%g.txt' % (bucket, x) for x in id]
@@ -1264,6 +1282,7 @@ def plot_results(start=0, stop=0, bucket='', id=(), labels=(),
         os.system(c)
     else:
         files = glob.glob(str(Path(save_dir) / 'results*.txt')) + glob.glob('../../Downloads/results*.txt')
+    assert len(files), 'No results.txt files found in %s, nothing to plot.' % os.path.abspath(save_dir)
     for fi, f in enumerate(files):
         try:
             results = np.loadtxt(f, usecols=[2, 3, 4, 8, 9, 12, 13, 14, 10, 11], ndmin=2).T
@@ -1272,7 +1291,7 @@ def plot_results(start=0, stop=0, bucket='', id=(), labels=(),
             for i in range(10):
                 y = results[i, x]
                 if i in [0, 1, 2, 5, 6, 7]:
-                    y[y == 0] = np.nan  # dont show zero loss values
+                    y[y == 0] = np.nan  # don't show zero loss values
                     # y /= y[0]  # normalize
                 label = labels[fi] if len(labels) else Path(f).stem
                 ax[i].plot(x, y, marker='.', label=label, linewidth=1, markersize=6)
